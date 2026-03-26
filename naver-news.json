@@ -1,0 +1,99 @@
+{
+    "name": "뉴스 상위 5개 크롤링",
+    "nodes": [
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "hours",
+                            "hoursInterval": 1
+                        }
+                    ]
+                }
+            },
+            "id": "node-1",
+            "name": "Schedule Trigger",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [200, 300]
+        },
+        {
+            "parameters": {
+                "url": "https://www.khan.co.kr/rss/rssdata/total_news.xml",
+                "method": "GET",
+                "options": {
+                    "allowUnauthorizedCerts": true,
+                    "redirect": {
+                        "redirect": {
+                            "followRedirects": true,
+                            "maxRedirects": 5
+                        }
+                    },
+                    "response": {
+                        "response": {
+                            "responseFormat": "text"
+                        }
+                    }
+                },
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "User-Agent",
+                            "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+                        },
+                        {
+                            "name": "Accept",
+                            "value": "application/rss+xml, application/xml, text/xml, */*"
+                        }
+                    ]
+                }
+            },
+            "id": "node-2",
+            "name": "RSS 요청",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [420, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const xml = $input.first().json.data;\n\n// HTML 응답 체크\nif (xml.includes('<!doctype html') || xml.includes('<html')) {\n  throw new Error('RSS XML이 아닌 HTML 페이지가 반환됨. URL을 확인하세요.');\n}\n\n// <item> 블록 추출\nconst itemRegex = /<item[\\s\\S]*?<\\/item>/gi;\nconst items = [];\nlet match;\nlet count = 0;\n\nconst getTag = (block, tag) => {\n  const m = block.match(new RegExp(`<${tag}[^>]*>([\\\\s\\\\S]*?)<\\/${tag}>`, 'i'));\n  if (!m) return '';\n  return m[1]\n    .replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1')\n    .replace(/<[^>]*>/g, '')\n    .trim();\n};\n\nwhile ((match = itemRegex.exec(xml)) !== null && count < 5) {\n  const block = match[0];\n  items.push({\n    json: {\n      rank: count + 1,\n      title: getTag(block, 'title'),\n      link: getTag(block, 'link') || getTag(block, 'guid'),\n      description: getTag(block, 'description'),\n      pubDate: getTag(block, 'pubDate'),\n      category: getTag(block, 'category')\n    }\n  });\n  count++;\n}\n\nif (items.length === 0) {\n  throw new Error('파싱된 뉴스 아이템이 없음. XML 구조를 확인하세요.');\n}\n\nreturn items;"
+            },
+            "id": "node-3",
+            "name": "RSS 파싱",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [640, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const items = $input.all();\n\nlet message = '📰 주요 뉴스 TOP 5\\n';\nmessage += '━━━━━━━━━━━━━━━━━━━━\\n';\n\nfor (const item of items) {\n  const { rank, title, link, pubDate } = item.json;\n  message += `\\n${rank}위. ${title}\\n🔗 ${link}\\n🕐 ${pubDate}\\n`;\n}\n\nreturn [{ json: { message, count: items.length, generatedAt: new Date().toISOString() } }];"
+            },
+            "id": "node-4",
+            "name": "결과 포맷팅",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [860, 300]
+        }
+    ],
+    "connections": {
+        "Schedule Trigger": {
+            "main": [[{ "node": "RSS 요청", "type": "main", "index": 0 }]]
+        },
+        "RSS 요청": {
+            "main": [[{ "node": "RSS 파싱", "type": "main", "index": 0 }]]
+        },
+        "RSS 파싱": {
+            "main": [[{ "node": "결과 포맷팅", "type": "main", "index": 0 }]]
+        }
+    },
+    "active": false,
+    "settings": {
+        "executionOrder": "v1",
+        "saveManualExecutions": true,
+        "callerPolicy": "workflowsFromSameOwner"
+    },
+    "tags": [],
+    "pinData": {}
+}
